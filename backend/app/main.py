@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.auth import router as auth_router
 from app.api.v1.health import router as health_router
 from app.api.v1.resume import router as resume_router
+from app.api.v1.embeddings import router as embeddings_router
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.db.chroma import connect_to_chroma
@@ -90,3 +91,4 @@ register_exception_handlers(app)
 app.include_router(health_router)
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(resume_router, prefix="/api/v1")
+app.include_router(embeddings_router, prefix="/api/v1")

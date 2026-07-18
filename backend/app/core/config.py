@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     MONGODB_DB_NAME: str = "interview_coach"
 
     CHROMA_PERSIST_DIR: str = "./chroma_data"
+    # CHROMA_COLLECTION_NAME: str = "resume_embeddings"
+    CHROMA_COLLECTION_NAME: str = "resume_chunks"
+    EMBEDDING_MODEL_NAME: str = "sentence-transformers/all-MiniLM-L6-v2"
+    EMBEDDING_CHUNK_SIZE: int = 500
+    EMBEDDING_CHUNK_OVERLAP: int = 100
 
     CORS_ORIGINS: str = "http://localhost:5173"
 
@@ -37,11 +42,17 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> list[str]:
-        """CORS_ORIGINS is stored as a comma-separated string because
-        environment variables can only hold text, not native lists. This
-        property parses it once into the list format FastAPI's
-        CORSMiddleware actually expects."""
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+        """
+        CORS_ORIGINS is stored as a comma-separated string because
+        environment variables can only hold text, not native lists.
+        This property converts it into the list format expected by
+        FastAPI's CORSMiddleware.
+        """
+        return [
+            origin.strip()
+            for origin in self.CORS_ORIGINS.split(",")
+            if origin.strip()
+        ]
 
 
 @lru_cache
@@ -49,12 +60,7 @@ def get_settings() -> Settings:
     """
     Returns a cached Settings instance.
 
-    Settings() reads and validates every environment variable when it's
-    constructed. @lru_cache means that only happens once per process — the
-    first call — and every later call (there will be many, since this is
-    used as a FastAPI dependency on almost every route) returns the same
-    cached object instead of re-reading the environment. This is the
-    standard FastAPI settings pattern: configuration should never silently
-    change mid-process.
+    Settings() reads and validates every environment variable only once.
+    Subsequent calls return the same cached object.
     """
     return Settings()

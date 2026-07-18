@@ -21,6 +21,7 @@ from app.models.resume import Resume
 from app.repositories.resume_repository import ResumeRepository
 from app.utils.docx_parser import extract_text_from_docx
 from app.utils.pdf_parser import extract_text_from_pdf
+from app.services.semantic_search_service import SemanticSearchService
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +58,11 @@ class ResumeService:
         self,
         repository: ResumeRepository,
         upload_directory: Path,
+        semantic_search_service: SemanticSearchService,
     ) -> None:
         self._repository = repository
         self._upload_directory = upload_directory
+        self._semantic_search_service = semantic_search_service
 
     async def upload_resume(
         self,
@@ -86,6 +89,7 @@ class ResumeService:
 
         stored_filename = f"{uuid4().hex}{extension}"
         stored_path = self._upload_directory / stored_filename
+        resume: Resume | None = None
 
         try:
             await self._save_upload(upload_file, stored_path)
@@ -114,8 +118,15 @@ class ResumeService:
                 updated_at=timestamp,
             )
 
+            await self._semantic_search_service.index_resume(
+                resume_id=resume.id,
+                user_id=user_id,
+                filename=original_filename,
+                text=extracted_text,
+            )
+
             logger.info(
-                "Resume uploaded",
+                "Resume uploaded and indexed",
                 extra={
                     "resume_id": resume.id,
                     "user_id": user_id,
@@ -133,6 +144,8 @@ class ResumeService:
             await self._remove_file_safely(stored_path)
             raise
         except PyMongoError as exc:
+            if resume is not None:
+                await self._rollback_persisted_resume(resume)
             await self._remove_file_safely(stored_path)
             logger.exception(
                 "Database failure while storing resume",
@@ -142,6 +155,8 @@ class ResumeService:
                 "The resume was parsed but could not be saved"
             ) from exc
         except OSError as exc:
+            if resume is not None:
+                await self._rollback_persisted_resume(resume)
             await self._remove_file_safely(stored_path)
             logger.exception(
                 "Filesystem failure during resume upload",
@@ -151,6 +166,8 @@ class ResumeService:
                 "The resume file could not be stored"
             ) from exc
         except Exception as exc:
+            if resume is not None:
+                await self._rollback_persisted_resume(resume)
             await self._remove_file_safely(stored_path)
             logger.exception(
                 "Unexpected resume upload failure",
@@ -212,16 +229,38 @@ class ResumeService:
             raise ResumeAccessDeniedError()
 
         try:
+            await self._semantic_search_service.delete_resume_embeddings(
+                resume_id=resume_id,
+                user_id=user_id,
+            )
             deleted = await self._repository.delete_resume(resume_id)
-        except PyMongoError as exc:
+        except Exception as exc:
+            logger.exception(
+                "Failed to delete resume and embeddings",
+                extra={"resume_id": resume_id, "user_id": user_id},
+            )
             raise ResumeStorageError(
-                "The resume could not be deleted"
+                "The resume and its embeddings could not be deleted"
             ) from exc
 
         if not deleted:
             raise ResumeNotFoundError()
 
         await self._remove_file_safely(Path(resume.file_path))
+
+
+    async def _rollback_persisted_resume(self, resume: Resume) -> None:
+        try:
+            await self._semantic_search_service.delete_resume_embeddings(
+                resume_id=resume.id,
+                user_id=resume.user_id,
+            )
+        except Exception:
+            logger.exception("Failed to roll back resume embeddings", extra={"resume_id": resume.id})
+        try:
+            await self._repository.delete_resume(resume.id)
+        except Exception:
+            logger.exception("Failed to roll back resume document", extra={"resume_id": resume.id})
 
     def _validate_metadata(
         self,

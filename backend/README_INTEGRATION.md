@@ -1,70 +1,74 @@
-# Resume Module Integration
+# AI Interview Coach Backend
 
-## Included endpoints
+## Implemented modules
+
+### Module 1 — Authentication
+
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `GET /api/v1/auth/me`
+
+### Module 2 — Resume Upload & Parsing
 
 - `POST /api/v1/resume/upload`
 - `GET /api/v1/resume/me`
 - `DELETE /api/v1/resume/{resume_id}`
 
-## Existing project contracts
+PDF and DOCX uploads are validated, stored under `uploads/`, parsed, and persisted in MongoDB.
 
-This module expects:
+### Module 3 — Embeddings & Semantic Search
 
-```python
-from app.db.mongodb import get_database
+- Resume text is automatically split into configurable overlapping chunks after upload.
+- Chunks are embedded in one batch with `sentence-transformers/all-MiniLM-L6-v2`.
+- Vectors and metadata are persisted in ChromaDB using deterministic IDs.
+- Failed vector indexing rolls back the MongoDB resume document and uploaded file.
+- Deleting a resume also deletes its ChromaDB vectors.
+- `POST /api/v1/embeddings/search` performs authenticated, user-scoped semantic search.
+- Search can optionally be restricted to one owned resume with `resume_id`.
+
+Example request:
+
+```json
+{
+  "query": "backend engineering experience with FastAPI and MongoDB",
+  "top_k": 5,
+  "min_similarity": 0.2
+}
 ```
 
-`get_database` should return or asynchronously resolve to an
-`AsyncIOMotorDatabase`.
+Optional single-resume search:
 
-It also expects:
-
-```python
-from app.dependencies import get_current_user
+```json
+{
+  "query": "machine learning projects",
+  "top_k": 10,
+  "resume_id": "MongoDB ObjectId string",
+  "min_similarity": 0.0
+}
 ```
 
-`get_current_user` must return a dictionary, Pydantic model, or object
-containing `id` or `_id`.
+## Configuration
 
-## Install dependencies
+Copy `.env.example` to `.env` and set MongoDB and JWT values. Module 3 uses:
+
+```text
+CHROMA_PERSIST_DIR=./chroma_data
+CHROMA_COLLECTION_NAME=resume_chunks
+EMBEDDING_MODEL_NAME=sentence-transformers/all-MiniLM-L6-v2
+EMBEDDING_CHUNK_SIZE=500
+EMBEDDING_CHUNK_OVERLAP=100
+```
+
+The embedding model downloads on first use and remains cached in the process.
+
+## Install and run
 
 ```bash
-pip install -r requirements-resume.txt
-```
-
-## Run
-
-```bash
+python -m venv venv
+# Windows: venv\Scripts\activate
+# Linux/macOS: source venv/bin/activate
+pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-## Swagger
-
-Open:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-## Important integration note
-
-If your existing `app/main.py` already defines the FastAPI app, do not replace
-unrelated application setup. Copy these parts into it:
-
-```python
-from app.api.v1.router import api_v1_router
-from app.exceptions.resume import ResumeError
-```
-
-Register the exception handler and include:
-
-```python
-app.include_router(api_v1_router)
-```
-
-If your existing API v1 router already exists, include only:
-
-```python
-from app.api.v1.resume import router as resume_router
-api_v1_router.include_router(resume_router)
-```
+Swagger UI: `http://127.0.0.1:8000/docs`

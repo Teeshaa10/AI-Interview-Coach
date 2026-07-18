@@ -3,6 +3,8 @@ import logging
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
+from app.exceptions.resume import ResumeError
+
 from app.exceptions.auth_exceptions import (
     AuthError,
     InvalidCredentialsError,
@@ -42,3 +44,12 @@ def register_exception_handlers(app: FastAPI) -> None:
         status_code = _STATUS_CODE_MAP.get(type(exc), status.HTTP_400_BAD_REQUEST)
         logger.info(f"Handled {type(exc).__name__} on {request.url.path}: {exc}")
         return JSONResponse(status_code=status_code, content={"detail": str(exc)})
+
+    @app.exception_handler(ResumeError)
+    async def handle_resume_error(request: Request, exc: ResumeError) -> JSONResponse:
+        logger.info("Handled %s on %s: %s", type(exc).__name__, request.url.path, exc.detail)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=exc.headers,
+        )
