@@ -3,6 +3,7 @@ import logging
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
+from app.exceptions.interview import InterviewError
 from app.exceptions.resume import ResumeError
 
 from app.exceptions.auth_exceptions import (
@@ -52,4 +53,12 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=exc.status_code,
             content={"detail": exc.detail},
             headers=exc.headers,
+        )
+
+    @app.exception_handler(InterviewError)
+    async def handle_interview_error(request: Request, exc: InterviewError) -> JSONResponse:
+        logger.info("Handled %s on %s: %s", type(exc).__name__, request.url.path, exc.detail)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
         )

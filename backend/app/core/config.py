@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     EMBEDDING_CHUNK_SIZE: int = 500
     EMBEDDING_CHUNK_OVERLAP: int = 100
 
+    # Google Gemini configuration for resume-grounded interview generation.
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL_NAME: str = "gemini-2.5-flash"
+    GEMINI_TIMEOUT_SECONDS: float = 45.0
+    INTERVIEW_SEARCH_TOP_K: int = 8
+
     CORS_ORIGINS: str = "http://localhost:5173"
 
     JWT_SECRET_KEY: str
