@@ -19,9 +19,9 @@ from app.exceptions.resume import (
 )
 from app.models.resume import Resume
 from app.repositories.resume_repository import ResumeRepository
+from app.services.semantic_search_service import SemanticSearchService
 from app.utils.docx_parser import extract_text_from_docx
 from app.utils.pdf_parser import extract_text_from_pdf
-from app.services.semantic_search_service import SemanticSearchService
 
 logger = logging.getLogger(__name__)
 
@@ -143,52 +143,71 @@ class ResumeService:
         ):
             await self._remove_file_safely(stored_path)
             raise
+
         except PyMongoError as exc:
             if resume is not None:
                 await self._rollback_persisted_resume(resume)
+
             await self._remove_file_safely(stored_path)
+
             logger.exception(
                 "Database failure while storing resume",
                 extra={"user_id": user_id},
             )
+
             raise ResumeStorageError(
                 "The resume was parsed but could not be saved"
             ) from exc
+
         except OSError as exc:
             if resume is not None:
                 await self._rollback_persisted_resume(resume)
+
             await self._remove_file_safely(stored_path)
+
             logger.exception(
                 "Filesystem failure during resume upload",
                 extra={"file_path": str(stored_path)},
             )
+
             raise ResumeStorageError(
                 "The resume file could not be stored"
             ) from exc
+
         except Exception as exc:
             if resume is not None:
                 await self._rollback_persisted_resume(resume)
+
             await self._remove_file_safely(stored_path)
+
             logger.exception(
                 "Unexpected resume upload failure",
                 extra={"user_id": user_id},
             )
+
             raise ResumeStorageError(
                 "An unexpected error occurred while processing the resume"
             ) from exc
+
         finally:
             await upload_file.close()
 
-    async def get_resume_for_user(self, *, user_id: str) -> Resume:
+    async def get_resume_for_user(
+        self,
+        *,
+        user_id: str,
+    ) -> Resume:
         """Return the authenticated user's latest resume."""
 
         try:
             resume = await self._repository.get_resume_by_user(user_id)
+
         except PyMongoError as exc:
             logger.exception(
                 "Failed to retrieve user resume",
                 extra={"user_id": user_id},
             )
+
             raise ResumeStorageError(
                 "The resume could not be retrieved"
             ) from exc
@@ -210,6 +229,7 @@ class ResumeService:
 
         try:
             resume = await self._repository.get_resume_by_id(resume_id)
+
         except PyMongoError as exc:
             raise ResumeStorageError(
                 "The resume could not be retrieved"
@@ -226,6 +246,7 @@ class ResumeService:
                     "requesting_user_id": user_id,
                 },
             )
+
             raise ResumeAccessDeniedError()
 
         try:
@@ -233,12 +254,18 @@ class ResumeService:
                 resume_id=resume_id,
                 user_id=user_id,
             )
+
             deleted = await self._repository.delete_resume(resume_id)
+
         except Exception as exc:
             logger.exception(
                 "Failed to delete resume and embeddings",
-                extra={"resume_id": resume_id, "user_id": user_id},
+                extra={
+                    "resume_id": resume_id,
+                    "user_id": user_id,
+                },
             )
+
             raise ResumeStorageError(
                 "The resume and its embeddings could not be deleted"
             ) from exc
@@ -248,19 +275,30 @@ class ResumeService:
 
         await self._remove_file_safely(Path(resume.file_path))
 
-
-    async def _rollback_persisted_resume(self, resume: Resume) -> None:
+    async def _rollback_persisted_resume(
+        self,
+        resume: Resume,
+    ) -> None:
         try:
             await self._semantic_search_service.delete_resume_embeddings(
                 resume_id=resume.id,
                 user_id=resume.user_id,
             )
+
         except Exception:
-            logger.exception("Failed to roll back resume embeddings", extra={"resume_id": resume.id})
+            logger.exception(
+                "Failed to roll back resume embeddings",
+                extra={"resume_id": resume.id},
+            )
+
         try:
             await self._repository.delete_resume(resume.id)
+
         except Exception:
-            logger.exception("Failed to roll back resume document", extra={"resume_id": resume.id})
+            logger.exception(
+                "Failed to roll back resume document",
+                extra={"resume_id": resume.id},
+            )
 
     def _validate_metadata(
         self,
@@ -276,7 +314,9 @@ class ResumeService:
         original_filename = Path(upload_file.filename).name.strip()
 
         if not original_filename:
-            raise InvalidResumeFileError("The filename is invalid")
+            raise InvalidResumeFileError(
+                "The filename is invalid"
+            )
 
         extension = Path(original_filename).suffix.lower()
 
@@ -323,7 +363,9 @@ class ResumeService:
                 await output_file.write(chunk)
 
         if total_size == 0:
-            raise InvalidResumeFileError("The uploaded resume is empty")
+            raise InvalidResumeFileError(
+                "The uploaded resume is empty"
+            )
 
     @staticmethod
     def _validate_file_signature(
@@ -338,12 +380,14 @@ class ResumeService:
                     raise InvalidResumeFileError(
                         "The uploaded file is not a valid PDF"
                     )
+
             return
 
         if extension == ".docx":
             try:
                 with zipfile.ZipFile(file_path) as archive:
                     entries = set(archive.namelist())
+
             except (zipfile.BadZipFile, OSError) as exc:
                 raise InvalidResumeFileError(
                     "The uploaded file is not a valid DOCX"
@@ -358,9 +402,12 @@ class ResumeService:
                 raise InvalidResumeFileError(
                     "The uploaded file is not a valid DOCX"
                 )
+
             return
 
-        raise InvalidResumeFileError("Unsupported resume format")
+        raise InvalidResumeFileError(
+            "Unsupported resume format"
+        )
 
     async def _extract_text(
         self,
@@ -382,11 +429,16 @@ class ResumeService:
                     file_path,
                 )
 
-            raise InvalidResumeFileError("Unsupported resume format")
+            raise InvalidResumeFileError(
+                "Unsupported resume format"
+            )
+
         except InvalidResumeFileError:
             raise
+
         except (ValueError, RuntimeError) as exc:
             raise ResumeParsingError(str(exc)) from exc
+
         except Exception as exc:
             logger.exception(
                 "Unexpected resume parser failure",
@@ -395,16 +447,23 @@ class ResumeService:
                     "file_type": file_type,
                 },
             )
+
             raise ResumeParsingError(
                 "The uploaded resume could not be parsed"
             ) from exc
 
     @staticmethod
-    async def _remove_file_safely(file_path: Path) -> None:
+    async def _remove_file_safely(
+        file_path: Path,
+    ) -> None:
         """Delete a file without replacing the original application error."""
 
         try:
-            await asyncio.to_thread(file_path.unlink, missing_ok=True)
+            await asyncio.to_thread(
+                file_path.unlink,
+                missing_ok=True,
+            )
+
         except OSError:
             logger.exception(
                 "Failed to remove resume file",
