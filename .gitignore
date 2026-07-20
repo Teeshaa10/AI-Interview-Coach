@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.pyc
+
+.vscode/
+backend/uploads/
+backend_for_upload/
+*.zip
