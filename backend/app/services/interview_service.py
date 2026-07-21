@@ -1,5 +1,7 @@
 import asyncio
+import json
 import logging
+import re
 from typing import Any
 
 from google import genai
@@ -50,14 +52,14 @@ class InterviewService:
         user_id: str,
         request: InterviewQuestionRequest,
     ) -> InterviewQuestionsResponse:
-
         if self._gemini_client is None:
             raise GeminiConfigurationError()
 
         search_query = (
-            f"Relevant experience, technical skills, projects, engineering decisions, "
-            f"achievements, and responsibilities for a "
-            f"{request.job_role} interview at {request.experience_level} level"
+            "Relevant experience, technical skills, projects, engineering "
+            f"decisions, achievements, and responsibilities for a "
+            f"{request.job_role} interview at "
+            f"{request.experience_level} level"
         )
 
         chunks = await self._semantic_search_service.search(
@@ -78,11 +80,9 @@ class InterviewService:
             chunks=chunks,
         )
 
-        # IMPORTANT:
-        # Do NOT pass response_schema.
         config = types.GenerateContentConfig(
             system_instruction=SYSTEM_INSTRUCTION,
-            temperature=0.35,
+            temperature=0.2,
             response_mime_type="application/json",
         )
 
@@ -120,15 +120,22 @@ class InterviewService:
         result = self._parse_response(response)
 
         if result.total_questions != request.number_of_questions:
+            logger.warning(
+                "Gemini returned %s questions, but %s were requested",
+                result.total_questions,
+                request.number_of_questions,
+            )
             raise InvalidGeminiResponseError(
                 "Gemini returned a different number of questions than requested"
             )
 
         return result
 
-    @staticmethod
-    def _parse_response(response: Any) -> InterviewQuestionsResponse:
-
+    @classmethod
+    def _parse_response(
+        cls,
+        response: Any,
+    ) -> InterviewQuestionsResponse:
         parsed = getattr(response, "parsed", None)
 
         try:
@@ -136,7 +143,8 @@ class InterviewService:
                 return parsed
 
             if parsed is not None:
-                return InterviewQuestionsResponse.model_validate(parsed)
+                normalized = cls._normalize_response_data(parsed)
+                return InterviewQuestionsResponse.model_validate(normalized)
 
             text = getattr(response, "text", None)
 
@@ -145,11 +153,112 @@ class InterviewService:
                     "Gemini returned an empty response"
                 )
 
-            return InterviewQuestionsResponse.model_validate_json(text)
+            data = cls._extract_json(text)
+            normalized = cls._normalize_response_data(data)
 
-        except ValidationError as exc:
+            return InterviewQuestionsResponse.model_validate(normalized)
+
+        except InvalidGeminiResponseError:
+            raise
+
+        except (
+            json.JSONDecodeError,
+            ValidationError,
+            TypeError,
+            ValueError,
+        ) as exc:
             logger.warning(
-                "Gemini returned invalid JSON: %s",
+                "Gemini returned an invalid question response: %s",
                 exc,
             )
-            raise InvalidGeminiResponseError() from exc
+            raise InvalidGeminiResponseError(
+                "Gemini returned an invalid question response"
+            ) from exc
+
+    @staticmethod
+    def _extract_json(text: str) -> Any:
+        cleaned = text.strip()
+
+        cleaned = re.sub(
+            r"^```(?:json)?\s*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+
+        try:
+            return json.loads(cleaned)
+
+        except json.JSONDecodeError:
+            object_start = cleaned.find("{")
+            object_end = cleaned.rfind("}")
+
+            if object_start != -1 and object_end > object_start:
+                return json.loads(cleaned[object_start : object_end + 1])
+
+            array_start = cleaned.find("[")
+            array_end = cleaned.rfind("]")
+
+            if array_start != -1 and array_end > array_start:
+                return json.loads(cleaned[array_start : array_end + 1])
+
+            raise
+
+    @staticmethod
+    def _normalize_response_data(data: Any) -> dict[str, list[str]]:
+        if hasattr(data, "model_dump"):
+            data = data.model_dump()
+
+        expected_keys = (
+            "technical_questions",
+            "project_questions",
+            "hr_questions",
+            "coding_questions",
+        )
+
+        normalized: dict[str, list[str]] = {
+            key: [] for key in expected_keys
+        }
+
+        if isinstance(data, dict):
+            for key in expected_keys:
+                value = data.get(key)
+
+                if isinstance(value, list):
+                    normalized[key].extend(
+                        str(question).strip()
+                        for question in value
+                        if str(question).strip()
+                    )
+
+            nested_questions = data.get("questions")
+
+            if isinstance(nested_questions, list):
+                data = nested_questions
+            else:
+                return normalized
+
+        if isinstance(data, list):
+            for item in data:
+                if hasattr(item, "model_dump"):
+                    item = item.model_dump()
+
+                if not isinstance(item, dict):
+                    continue
+
+                for key in expected_keys:
+                    value = item.get(key)
+
+                    if isinstance(value, list):
+                        normalized[key].extend(
+                            str(question).strip()
+                            for question in value
+                            if str(question).strip()
+                        )
+
+            return normalized
+
+        raise ValueError(
+            "Gemini response must be a JSON object or array"
+        )

@@ -6,10 +6,11 @@ from fastapi import FastAPI
 from app.api.v1.auth import router as auth_router
 from app.api.v1.interview import router as interview_router
 from app.api.v1.resume import router as resume_router
+from app.api.v1.resume_analysis import router as resume_analysis_router
+from app.api.v1.voice import router as voice_router
 from app.db.chroma import close_chroma_connection, connect_to_chroma
 from app.db.mongo import close_mongo_connection, connect_to_mongo
 from app.exceptions.handlers import register_exception_handlers
-from app.api.v1.resume_analysis import router as resume_analysis_router
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ app.include_router(auth_router)
 app.include_router(resume_router)
 app.include_router(interview_router)
 app.include_router(resume_analysis_router)
+app.include_router(voice_router)
 
 
 @app.get("/")

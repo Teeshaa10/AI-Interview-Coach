@@ -12,6 +12,7 @@ from app.exceptions.auth_exceptions import (
 from app.exceptions.evaluation import EvaluationError
 from app.exceptions.interview import InterviewError
 from app.exceptions.resume import ResumeError
+from app.exceptions.voice import VoiceError
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,23 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def handle_evaluation_error(
         request: Request,
         exc: EvaluationError,
+    ) -> JSONResponse:
+        logger.info(
+            "Handled %s on %s: %s",
+            type(exc).__name__,
+            request.url.path,
+            exc.detail,
+        )
+
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+        )
+
+    @app.exception_handler(VoiceError)
+    async def handle_voice_error(
+        request: Request,
+        exc: VoiceError,
     ) -> JSONResponse:
         logger.info(
             "Handled %s on %s: %s",
