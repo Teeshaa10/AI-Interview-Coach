@@ -1,403 +1,228 @@
+import asyncio
+import re
+import threading
+import uuid
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from typing import BinaryIO, Optional
 
-from fastapi import UploadFile
+import edge_tts
+from faster_whisper import WhisperModel
 
-from app.core.config import Settings
-from app.exceptions.voice import (
-    AudioFileTooLargeError,
-    AudioNotFoundError,
-    EmptyAudioFileError,
-    ForbiddenAudioAccessError,
-    ForbiddenVoiceInterviewError,
-    InterviewNotFoundForVoiceError,
-    UnsupportedAudioFormatError,
-    UnsafeAudioPathError,
-    VoiceInterviewCompletedError,
-    VoiceQuestionNotFoundError,
-)
 from app.repositories.interview_repository import InterviewRepository
+from app.repositories.voice_repository import VoiceRepository
 from app.schemas.interview_evaluation import InterviewEvaluationResponse
-from app.schemas.interview_session import InterviewQuestion
+from app.schemas.voice import VoiceAudioRecord
 from app.services.evaluation_service import EvaluationService
-from app.services.speech_to_text_service import SpeechToTextService
-from app.services.text_to_speech_service import TextToSpeechService
 
 
 class VoiceService:
-    ALLOWED_EXTENSIONS = {
-        ".wav",
-        ".mp3",
-        ".m4a",
-        ".webm",
-        ".ogg",
-        ".flac",
-        ".mp4",
-    }
+    _whisper_models: dict[tuple[str, str, str], WhisperModel] = {}
+    _whisper_model_lock = threading.Lock()
 
-    ALLOWED_CONTENT_TYPES = {
-        "audio/wav",
-        "audio/x-wav",
-        "audio/wave",
-        "audio/mpeg",
-        "audio/mp3",
-        "audio/mp4",
-        "audio/x-m4a",
-        "audio/m4a",
-        "audio/webm",
-        "video/webm",
-        "audio/ogg",
-        "application/ogg",
-        "audio/flac",
-        "audio/x-flac",
-        "video/mp4",
-    }
-
-    READ_CHUNK_SIZE = 1024 * 1024
+    ALLOWED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".webm", ".flac", ".aac"}
 
     def __init__(
         self,
-        *,
-        settings: Settings,
-        speech_to_text_service: SpeechToTextService,
-        text_to_speech_service: TextToSpeechService,
         interview_repository: InterviewRepository,
+        voice_repository: VoiceRepository,
         evaluation_service: EvaluationService,
-    ) -> None:
-        self.settings = settings
-        self.speech_to_text_service = speech_to_text_service
-        self.text_to_speech_service = text_to_speech_service
+        audio_directory: str,
+        whisper_model_name: str,
+        whisper_device: str,
+        whisper_compute_type: str,
+        default_tts_voice: str,
+        max_audio_size_mb: int,
+    ):
         self.interview_repository = interview_repository
+        self.voice_repository = voice_repository
         self.evaluation_service = evaluation_service
+        self.audio_directory = Path(audio_directory).resolve()
+        self.audio_directory.mkdir(parents=True, exist_ok=True)
+        self.whisper_model_name = whisper_model_name
+        self.whisper_device = whisper_device
+        self.whisper_compute_type = whisper_compute_type
+        self.default_tts_voice = default_tts_voice
+        self.max_audio_size_bytes = max_audio_size_mb * 1024 * 1024
 
-    def _validate_audio_metadata(
-        self,
-        audio_file: UploadFile,
-    ) -> str:
-        original_filename = (
-            audio_file.filename or "audio"
-        ).strip()
-
-        extension = Path(
-            original_filename
-        ).suffix.lower()
-
-        if extension not in self.ALLOWED_EXTENSIONS:
-            raise UnsupportedAudioFormatError(
-                "Supported formats are WAV, MP3, M4A, WEBM, OGG, FLAC and MP4"
-            )
-
-        content_type = (
-            audio_file.content_type or ""
-        ).lower()
-
-        if (
-            content_type
-            and content_type
-            not in self.ALLOWED_CONTENT_TYPES
-        ):
-            raise UnsupportedAudioFormatError(
-                f"Unsupported audio content type: {content_type}"
-            )
-
-        return extension
-
-    async def _save_temporary_audio(
-        self,
-        audio_file: UploadFile,
-    ) -> tuple[Path, str]:
-        extension = self._validate_audio_metadata(
-            audio_file
+    async def _get_whisper_model(self) -> WhisperModel:
+        key = (
+            self.whisper_model_name,
+            self.whisper_device,
+            self.whisper_compute_type,
         )
 
-        original_filename = (
-            audio_file.filename or f"audio{extension}"
-        )
+        def load_model() -> WhisperModel:
+            with self._whisper_model_lock:
+                model = self._whisper_models.get(key)
+                if model is None:
+                    model = WhisperModel(
+                        self.whisper_model_name,
+                        device=self.whisper_device,
+                        compute_type=self.whisper_compute_type,
+                    )
+                    self._whisper_models[key] = model
+                return model
 
-        maximum_size = (
-            self.settings.VOICE_MAX_AUDIO_SIZE_MB
-            * 1024
-            * 1024
-        )
+        return await asyncio.to_thread(load_model)
 
-        total_size = 0
-        temporary_path: Path | None = None
+    async def save_uploaded_audio(self, file: BinaryIO, original_filename: str) -> Path:
+        extension = Path(original_filename or "audio.webm").suffix.lower()
+        if extension not in self.ALLOWED_AUDIO_EXTENSIONS:
+            raise ValueError("Unsupported audio format")
+
+        destination = self.audio_directory / f"upload_{uuid.uuid4().hex}{extension}"
+        size = 0
 
         try:
-            with NamedTemporaryFile(
-                mode="wb",
-                suffix=extension,
-                delete=False,
-            ) as temporary_file:
-                temporary_path = Path(
-                    temporary_file.name
-                )
-
-                while True:
-                    chunk = await audio_file.read(
-                        self.READ_CHUNK_SIZE
-                    )
-
-                    if not chunk:
-                        break
-
-                    total_size += len(chunk)
-
-                    if total_size > maximum_size:
-                        raise AudioFileTooLargeError(
-                            (
-                                "Audio file exceeds the "
-                                f"{self.settings.VOICE_MAX_AUDIO_SIZE_MB} MB limit"
-                            )
-                        )
-
-                    temporary_file.write(chunk)
-
-            if total_size == 0:
-                raise EmptyAudioFileError()
-
-            return temporary_path, original_filename
-
+            with destination.open("wb") as output:
+                while chunk := file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > self.max_audio_size_bytes:
+                        raise ValueError("Audio file is too large")
+                    output.write(chunk)
         except Exception:
-            if temporary_path is not None:
-                temporary_path.unlink(
-                    missing_ok=True
-                )
-
+            destination.unlink(missing_ok=True)
             raise
 
-        finally:
-            await audio_file.close()
+        if size == 0:
+            destination.unlink(missing_ok=True)
+            raise ValueError("Audio file is empty")
 
-    async def transcribe_audio(
+        return destination
+
+    async def transcribe_file(self, audio_path: Path) -> tuple[str, Optional[str], Optional[float]]:
+        model = await self._get_whisper_model()
+
+        def transcribe() -> tuple[str, Optional[str], Optional[float]]:
+            segments, info = model.transcribe(
+                str(audio_path),
+                beam_size=5,
+                vad_filter=True,
+            )
+            text = " ".join(segment.text.strip() for segment in segments).strip()
+            language = getattr(info, "language", None)
+            duration = getattr(info, "duration", None)
+            return text, language, duration
+
+        text, language, duration = await asyncio.to_thread(transcribe)
+        if not text:
+            raise ValueError("No speech could be detected in the audio")
+
+        return text, language, duration
+
+    async def transcribe_upload(
         self,
-        audio_file: UploadFile,
-    ) -> dict:
-        temporary_path: Path | None = None
-
+        file: BinaryIO,
+        original_filename: str,
+    ) -> tuple[str, Optional[str], Optional[float]]:
+        audio_path = await self.save_uploaded_audio(file, original_filename)
         try:
-            (
-                temporary_path,
-                original_filename,
-            ) = await self._save_temporary_audio(
-                audio_file
-            )
-
-            transcription_result = (
-                await self.speech_to_text_service.transcribe(
-                    temporary_path
-                )
-            )
-
-            return {
-                **transcription_result,
-                "original_filename": original_filename,
-            }
-
+            return await self.transcribe_file(audio_path)
         finally:
-            if temporary_path is not None:
-                temporary_path.unlink(
-                    missing_ok=True
-                )
+            audio_path.unlink(missing_ok=True)
 
     async def submit_voice_answer(
         self,
-        *,
+        user_id: str,
         interview_id: str,
         question_number: int,
-        audio_file: UploadFile,
-        user_id: str,
-    ) -> dict:
-        interview = (
-            await self.interview_repository.get_interview_by_id(
-                interview_id
-            )
-        )
-
+        file: BinaryIO,
+        original_filename: str,
+    ):
+        interview = await self.interview_repository.get_interview_by_id(interview_id)
         if interview is None:
-            raise InterviewNotFoundForVoiceError()
-
+            raise LookupError("Interview not found")
         if interview.user_id != user_id:
-            raise ForbiddenVoiceInterviewError()
+            raise PermissionError("Access denied")
+        if question_number < 1 or question_number > len(interview.questions):
+            raise ValueError("Invalid question number")
 
-        if interview.completed:
-            raise VoiceInterviewCompletedError()
+        transcription, _, _ = await self.transcribe_upload(file, original_filename)
+        question = interview.questions[question_number - 1]
 
-        if (
-            question_number < 1
-            or question_number
-            > len(interview.questions)
-        ):
-            raise VoiceQuestionNotFoundError(
-                "Invalid interview question number"
-            )
-
-        transcription_result = (
-            await self.transcribe_audio(
-                audio_file
-            )
-        )
-
-        transcription = transcription_result[
-            "transcription"
-        ]
-
-        question = interview.questions[
-            question_number - 1
-        ]
-
-        evaluation: InterviewEvaluationResponse = (
-            await self.evaluation_service.evaluate_answer(
-                question=question.question,
-                answer=transcription,
-                resume_context="",
-                job_role=interview.job_role,
-                experience_level=(
-                    interview.experience_level
-                ),
-            )
-        )
-
-        updated_question = InterviewQuestion(
-            question_number=question.question_number,
+        evaluation: InterviewEvaluationResponse = await self.evaluation_service.evaluate_answer(
             question=question.question,
-            category=question.category,
             answer=transcription,
-            technical_score=evaluation.technical_score,
-            communication_score=(
-                evaluation.communication_score
-            ),
-            completeness_score=(
-                evaluation.completeness_score
-            ),
-            overall_score=evaluation.overall_score,
-            strengths=evaluation.strengths,
-            weaknesses=evaluation.weaknesses,
-            better_answer=evaluation.better_answer,
-            feedback=evaluation.feedback,
+            resume_context="",
+            job_role=interview.job_role,
+            experience_level=interview.experience_level,
         )
+
+        question.answer = transcription
+        question.technical_score = evaluation.technical_score
+        question.communication_score = evaluation.communication_score
+        question.completeness_score = evaluation.completeness_score
+        question.overall_score = evaluation.overall_score
+        question.strengths = evaluation.strengths
+        question.weaknesses = evaluation.weaknesses
+        question.better_answer = evaluation.better_answer
+        question.feedback = evaluation.feedback
 
         await self.interview_repository.update_question(
             interview_id,
             question_number,
-            updated_question.model_dump(),
+            question.model_dump(),
         )
 
-        return {
-            "transcription": transcription,
-            "language": transcription_result.get(
-                "language"
-            ),
-            "duration_seconds": (
-                transcription_result.get(
-                    "duration_seconds"
-                )
-            ),
-            "question": updated_question,
-        }
+        return transcription, question
 
-    async def generate_text_audio(
+    async def synthesize_speech(
         self,
-        *,
         user_id: str,
         text: str,
-        voice: str | None,
-    ) -> dict:
-        return (
-            await self.text_to_speech_service.generate_audio(
-                user_id=user_id,
-                text=text,
-                voice=voice,
-            )
+        voice: Optional[str],
+        rate: str,
+        volume: str,
+        pitch: str,
+    ) -> VoiceAudioRecord:
+        selected_voice = voice or self.default_tts_voice
+        self._validate_tts_adjustment(rate, r"^[+-]\d+%$", "rate")
+        self._validate_tts_adjustment(volume, r"^[+-]\d+%$", "volume")
+        self._validate_tts_adjustment(pitch, r"^[+-]\d+Hz$", "pitch")
+
+        filename = f"tts_{uuid.uuid4().hex}.mp3"
+        output_path = self.audio_directory / filename
+
+        communicator = edge_tts.Communicate(
+            text=text,
+            voice=selected_voice,
+            rate=rate,
+            volume=volume,
+            pitch=pitch,
         )
 
-    async def generate_question_audio(
+        try:
+            await communicator.save(str(output_path))
+        except Exception:
+            output_path.unlink(missing_ok=True)
+            raise
+
+        record = VoiceAudioRecord(
+            user_id=user_id,
+            filename=filename,
+            media_type="audio/mpeg",
+        )
+        record.id = await self.voice_repository.create_audio_record(record)
+        return record
+
+    async def get_owned_audio_path(
         self,
-        *,
-        interview_id: str,
-        question_number: int,
         user_id: str,
-        voice: str | None = None,
-    ) -> dict:
-        interview = (
-            await self.interview_repository.get_interview_by_id(
-                interview_id
-            )
-        )
-
-        if interview is None:
-            raise InterviewNotFoundForVoiceError()
-
-        if interview.user_id != user_id:
-            raise ForbiddenVoiceInterviewError()
-
-        if (
-            question_number < 1
-            or question_number
-            > len(interview.questions)
-        ):
-            raise VoiceQuestionNotFoundError(
-                "Invalid interview question number"
-            )
-
-        question = interview.questions[
-            question_number - 1
-        ]
-
-        return (
-            await self.text_to_speech_service.generate_audio(
-                user_id=user_id,
-                text=question.question,
-                voice=voice,
-            )
-        )
-
-    async def get_audio_file(
-        self,
-        *,
         audio_id: str,
-        user_id: str,
-    ) -> tuple[dict, Path]:
-        audio_record, audio_path = (
-            await self.text_to_speech_service.get_user_audio(
-                audio_id=audio_id,
-                user_id=user_id,
-            )
-        )
+    ) -> tuple[Path, VoiceAudioRecord]:
+        record = await self.voice_repository.get_audio_record(audio_id)
+        if record is None:
+            raise LookupError("Audio not found")
+        if record.user_id != user_id:
+            raise PermissionError("Access denied")
 
-        if not audio_record:
-            existing_record = (
-                await self.text_to_speech_service
-                .voice_repository
-                .get_audio_by_id(audio_id)
-            )
+        path = (self.audio_directory / record.filename).resolve()
+        if self.audio_directory not in path.parents or not path.is_file():
+            raise LookupError("Audio file not found")
 
-            if existing_record:
-                raise ForbiddenAudioAccessError()
+        return path, record
 
-            raise AudioNotFoundError()
-
-        if not audio_path:
-            raise AudioNotFoundError()
-
-        audio_directory = Path(
-            self.settings.VOICE_AUDIO_DIR
-        ).resolve()
-
-        resolved_audio_path = audio_path.resolve()
-
-        if (
-            audio_directory
-            not in resolved_audio_path.parents
-        ):
-            raise UnsafeAudioPathError()
-
-        if (
-            not resolved_audio_path.exists()
-            or not resolved_audio_path.is_file()
-        ):
-            raise AudioNotFoundError(
-                "Audio metadata exists, but the generated file is missing"
-            )
-
-        return audio_record, resolved_audio_path
+    @staticmethod
+    def _validate_tts_adjustment(value: str, pattern: str, field_name: str) -> None:
+        if not re.fullmatch(pattern, value):
+            raise ValueError(f"Invalid text-to-speech {field_name}")

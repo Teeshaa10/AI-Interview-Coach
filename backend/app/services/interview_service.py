@@ -52,14 +52,14 @@ class InterviewService:
         user_id: str,
         request: InterviewQuestionRequest,
     ) -> InterviewQuestionsResponse:
+
         if self._gemini_client is None:
             raise GeminiConfigurationError()
 
         search_query = (
-            "Relevant experience, technical skills, projects, engineering "
-            f"decisions, achievements, and responsibilities for a "
-            f"{request.job_role} interview at "
-            f"{request.experience_level} level"
+            f"Relevant experience, technical skills, projects, engineering decisions, "
+            f"achievements, and responsibilities for a "
+            f"{request.job_role} interview at {request.experience_level} level"
         )
 
         chunks = await self._semantic_search_service.search(
@@ -80,9 +80,11 @@ class InterviewService:
             chunks=chunks,
         )
 
+        # IMPORTANT:
+        # Do NOT pass response_schema.
         config = types.GenerateContentConfig(
             system_instruction=SYSTEM_INSTRUCTION,
-            temperature=0.2,
+            temperature=0.35,
             response_mime_type="application/json",
         )
 
@@ -120,11 +122,6 @@ class InterviewService:
         result = self._parse_response(response)
 
         if result.total_questions != request.number_of_questions:
-            logger.warning(
-                "Gemini returned %s questions, but %s were requested",
-                result.total_questions,
-                request.number_of_questions,
-            )
             raise InvalidGeminiResponseError(
                 "Gemini returned a different number of questions than requested"
             )
@@ -132,133 +129,61 @@ class InterviewService:
         return result
 
     @classmethod
-    def _parse_response(
-        cls,
-        response: Any,
-    ) -> InterviewQuestionsResponse:
+    def _parse_response(cls, response: Any) -> InterviewQuestionsResponse:
         parsed = getattr(response, "parsed", None)
-
         try:
             if isinstance(parsed, InterviewQuestionsResponse):
                 return parsed
-
             if parsed is not None:
-                normalized = cls._normalize_response_data(parsed)
-                return InterviewQuestionsResponse.model_validate(normalized)
-
+                return InterviewQuestionsResponse.model_validate(cls._normalize_response_data(parsed))
             text = getattr(response, "text", None)
-
             if not text or not text.strip():
-                raise InvalidGeminiResponseError(
-                    "Gemini returned an empty response"
-                )
-
-            data = cls._extract_json(text)
-            normalized = cls._normalize_response_data(data)
-
-            return InterviewQuestionsResponse.model_validate(normalized)
-
+                raise InvalidGeminiResponseError("Gemini returned an empty response")
+            return InterviewQuestionsResponse.model_validate(
+                cls._normalize_response_data(cls._extract_json(text))
+            )
         except InvalidGeminiResponseError:
             raise
-
-        except (
-            json.JSONDecodeError,
-            ValidationError,
-            TypeError,
-            ValueError,
-        ) as exc:
-            logger.warning(
-                "Gemini returned an invalid question response: %s",
-                exc,
-            )
-            raise InvalidGeminiResponseError(
-                "Gemini returned an invalid question response"
-            ) from exc
+        except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
+            logger.warning("Gemini returned an invalid question response: %s", exc)
+            raise InvalidGeminiResponseError("Gemini returned an invalid question response") from exc
 
     @staticmethod
     def _extract_json(text: str) -> Any:
-        cleaned = text.strip()
-
-        cleaned = re.sub(
-            r"^```(?:json)?\s*",
-            "",
-            cleaned,
-            flags=re.IGNORECASE,
-        )
-        cleaned = re.sub(r"\s*```$", "", cleaned)
-
+        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.IGNORECASE)
         try:
             return json.loads(cleaned)
-
         except json.JSONDecodeError:
-            object_start = cleaned.find("{")
-            object_end = cleaned.rfind("}")
-
-            if object_start != -1 and object_end > object_start:
-                return json.loads(cleaned[object_start : object_end + 1])
-
-            array_start = cleaned.find("[")
-            array_end = cleaned.rfind("]")
-
-            if array_start != -1 and array_end > array_start:
-                return json.loads(cleaned[array_start : array_end + 1])
-
+            array_start, array_end = cleaned.find("["), cleaned.rfind("]")
+            if array_start >= 0 and array_end > array_start:
+                return json.loads(cleaned[array_start:array_end + 1])
+            object_start, object_end = cleaned.find("{"), cleaned.rfind("}")
+            if object_start >= 0 and object_end > object_start:
+                return json.loads(cleaned[object_start:object_end + 1])
             raise
 
     @staticmethod
     def _normalize_response_data(data: Any) -> dict[str, list[str]]:
         if hasattr(data, "model_dump"):
             data = data.model_dump()
-
-        expected_keys = (
-            "technical_questions",
-            "project_questions",
-            "hr_questions",
-            "coding_questions",
-        )
-
-        normalized: dict[str, list[str]] = {
-            key: [] for key in expected_keys
-        }
-
+        keys = ("technical_questions", "project_questions", "hr_questions", "coding_questions")
+        normalized = {key: [] for key in keys}
         if isinstance(data, dict):
-            for key in expected_keys:
-                value = data.get(key)
-
-                if isinstance(value, list):
-                    normalized[key].extend(
-                        str(question).strip()
-                        for question in value
-                        if str(question).strip()
-                    )
-
-            nested_questions = data.get("questions")
-
-            if isinstance(nested_questions, list):
-                data = nested_questions
+            for key in keys:
+                if isinstance(data.get(key), list):
+                    normalized[key].extend(str(q).strip() for q in data[key] if str(q).strip())
+            if isinstance(data.get("questions"), list):
+                data = data["questions"]
             else:
                 return normalized
-
         if isinstance(data, list):
             for item in data:
                 if hasattr(item, "model_dump"):
                     item = item.model_dump()
-
                 if not isinstance(item, dict):
                     continue
-
-                for key in expected_keys:
-                    value = item.get(key)
-
-                    if isinstance(value, list):
-                        normalized[key].extend(
-                            str(question).strip()
-                            for question in value
-                            if str(question).strip()
-                        )
-
+                for key in keys:
+                    if isinstance(item.get(key), list):
+                        normalized[key].extend(str(q).strip() for q in item[key] if str(q).strip())
             return normalized
-
-        raise ValueError(
-            "Gemini response must be a JSON object or array"
-        )
+        raise ValueError("Gemini response must be a JSON object or array")
