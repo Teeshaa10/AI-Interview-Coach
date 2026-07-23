@@ -1,0 +1,23 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+uploads/
+voice_audio/
+chroma_data/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.vscode/
+.idea/
+*.log
+backend_for_upload/
+backend_latest.zip
+*.zip
+# Environment files
+.env
+.env.*
+!.env.example
