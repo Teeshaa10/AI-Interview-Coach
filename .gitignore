@@ -21,3 +21,7 @@ backend_latest.zip
 .env
 .env.*
 !.env.example
+
+# Uploaded resumes
+backend/uploads/*
+!backend/uploads/.gitkeep
