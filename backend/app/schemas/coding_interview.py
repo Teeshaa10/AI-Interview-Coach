@@ -68,6 +68,7 @@ class CodingInterviewSession(BaseModel):
     final_score: float = 0.0
     created_at: datetime = Field(default_factory=datetime.utcnow)
     completed_at: datetime | None = None
+    favorite: bool = False
 
 
 class CodingInterviewResponse(BaseModel):
@@ -87,6 +88,16 @@ class CodingSubmitRequest(BaseModel):
     explanation: str = ""
 
 
+class CodingRunRequest(BaseModel):
+    """Payload for the 'Run Code' action, which only executes the code
+    against the question's visible test cases and does not persist a
+    submission or compute a score - unlike CodingSubmitRequest/submit()."""
+
+    question_number: int = Field(ge=1)
+    language: str
+    source_code: str = Field(min_length=1)
+
+
 class TestExecutionResult(BaseModel):
     input: str
     expected_output: str
@@ -94,6 +105,12 @@ class TestExecutionResult(BaseModel):
     passed: bool
     stderr: str = ""
     execution_time: float | None = None
+
+
+class CodingRunResponse(BaseModel):
+    test_results: list[TestExecutionResult]
+    tests_passed: int
+    tests_total: int
 
 
 class CodingSubmission(BaseModel):

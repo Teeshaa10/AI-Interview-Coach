@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { QuickActions } from "@/components/dashboard/QuickActions";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
+import { CoachingSummaryWidget } from "@/components/dashboard/CoachingSummaryWidget";
 import { Spinner } from "@/components/common/Spinner";
 
 export function DashboardPage() {
@@ -57,8 +58,9 @@ export function DashboardPage() {
           />
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            <div className="lg:col-span-2">
+            <div className="space-y-6 lg:col-span-2">
               <RecentActivity interviews={interviews} />
+              <CoachingSummaryWidget />
             </div>
             <QuickActions />
           </div>

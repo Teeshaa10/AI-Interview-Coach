@@ -34,6 +34,11 @@ export interface StartInterviewPayload {
   job_role: string;
   experience_level: string;
   number_of_questions: number;
+  // Module 6/7: mirrors InterviewSessionCreate.mode in
+  // backend/app/schemas/interview_session.py. Optional and defaults to
+  // "text" on the backend, so text-interview callers can omit it; the
+  // voice setup flow sets this explicitly to "voice".
+  mode?: "text" | "voice";
 }
 
 export interface StartInterviewResponse {

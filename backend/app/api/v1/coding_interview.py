@@ -19,6 +19,8 @@ from app.schemas.coding_interview import (
     CodingInterviewSession,
     CodingInterviewStartRequest,
     CodingQuestionPublic,
+    CodingRunRequest,
+    CodingRunResponse,
     CodingSubmission,
     CodingSubmitRequest,
     CodingSubmitResponse,
@@ -101,6 +103,20 @@ async def get_coding_interview(
     repository: CodingInterviewRepository = Depends(get_coding_repository),
 ):
     return _response(_owned(await repository.get_session(session_id), current_user.id))
+
+
+@router.post("/{session_id}/run", response_model=CodingRunResponse)
+async def run_code(
+    session_id: str,
+    request: CodingRunRequest,
+    current_user: UserInDB = Depends(get_current_user),
+    repository: CodingInterviewRepository = Depends(get_coding_repository),
+    service: CodingInterviewService = Depends(get_coding_interview_service),
+):
+    session = _owned(await repository.get_session(session_id), current_user.id)
+    if session.completed:
+        raise CodingSessionCompletedError()
+    return await service.run_code(session=session, request=request)
 
 
 @router.post("/{session_id}/submit", response_model=CodingSubmitResponse)

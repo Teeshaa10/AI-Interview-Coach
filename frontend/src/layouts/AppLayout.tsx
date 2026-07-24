@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { BarChart3, FileText, LayoutDashboard, LogOut, Menu, MessagesSquare, Mic, Search, Sparkles, X } from "lucide-react";
+import { BarChart3, Brain, Code2, FileText, History, LayoutDashboard, LogOut, Menu, MessagesSquare, Mic, Search, Sparkles, X } from "lucide-react";
 import clsx from "clsx";
 
 import { useAuth } from "@/contexts/AuthContext";
@@ -11,7 +11,10 @@ const navItems = [
   { to: "/resumes/search", label: "Resume Search", icon: Search },
   { to: "/interviews", label: "Interviews", icon: MessagesSquare },
   { to: "/voice/setup", label: "Voice Interview", icon: Mic },
+  { to: "/coding/setup", label: "Coding Interview", icon: Code2 },
+  { to: "/coaching", label: "AI Coach", icon: Brain },
   { to: "/reports", label: "Reports", icon: BarChart3 },
+  { to: "/history", label: "History", icon: History },
 ];
 
 export function AppLayout() {

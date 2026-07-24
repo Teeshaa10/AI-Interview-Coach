@@ -123,3 +123,30 @@ class InterviewRepository:
         await self.collection.delete_one(
             {"_id": ObjectId(interview_id)}
         )
+
+    async def delete_owned_interview(
+        self,
+        interview_id: str,
+        user_id: str,
+    ) -> bool:
+        """Ownership-checked delete used by the unified session management
+        endpoints (Module 6/7). Returns False if not found or not owned,
+        instead of silently deleting like delete_interview()."""
+
+        if not ObjectId.is_valid(interview_id):
+            return False
+
+        result = await self.collection.delete_one(
+            {"_id": ObjectId(interview_id), "user_id": user_id}
+        )
+
+        return result.deleted_count == 1
+
+    async def set_favorite(self, interview_id: str, user_id: str, favorite: bool) -> bool:
+        if not ObjectId.is_valid(interview_id):
+            return False
+        result = await self.collection.update_one(
+            {"_id": ObjectId(interview_id), "user_id": user_id},
+            {"$set": {"favorite": favorite}},
+        )
+        return result.matched_count == 1

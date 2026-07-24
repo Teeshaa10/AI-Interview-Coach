@@ -23,7 +23,7 @@ export function VoiceInterviewSetupPage() {
   const handleSubmit = async (values: InterviewSetupFormValues) => {
     setIsSubmitting(true);
     try {
-      const response = await interviewApi.start(values);
+      const response = await interviewApi.start({ ...values, mode: "voice" });
       saveInterviewState({
         interviewId: response.interview_id,
         questions: response.questions,

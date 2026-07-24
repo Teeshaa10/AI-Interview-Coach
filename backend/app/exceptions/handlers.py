@@ -14,6 +14,8 @@ from app.exceptions.interview import InterviewError
 from app.exceptions.resume import ResumeError
 from app.exceptions.report import ReportError
 from app.exceptions.coding import CodingError
+from app.exceptions.session_management import SessionManagementError
+from app.exceptions.coaching import CoachingError
 
 logger = logging.getLogger(__name__)
 
@@ -106,5 +108,15 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(CodingError)
     async def handle_coding_error(request: Request, exc: CodingError) -> JSONResponse:
+        logger.info("Handled %s on %s: %s", type(exc).__name__, request.url.path, exc.detail)
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    @app.exception_handler(SessionManagementError)
+    async def handle_session_management_error(request: Request, exc: SessionManagementError) -> JSONResponse:
+        logger.info("Handled %s on %s: %s", type(exc).__name__, request.url.path, exc.detail)
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    @app.exception_handler(CoachingError)
+    async def handle_coaching_error(request: Request, exc: CoachingError) -> JSONResponse:
         logger.info("Handled %s on %s: %s", type(exc).__name__, request.url.path, exc.detail)
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})

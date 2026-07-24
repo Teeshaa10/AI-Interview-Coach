@@ -12,6 +12,7 @@ import { ScoreHistoryChart } from "@/components/reports/ScoreHistoryChart";
 import { RadarScoreChart } from "@/components/reports/RadarScoreChart";
 import { ProgressChart } from "@/components/reports/ProgressChart";
 import { StrengthWeaknessList } from "@/components/reports/StrengthWeaknessList";
+import { UnifiedOverviewPanel } from "@/components/dashboard/UnifiedOverviewPanel";
 
 export function ReportsDashboardPage() {
   const { data: summary, isLoading: isSummaryLoading, isError: isSummaryError } = useQuery({
@@ -33,13 +34,20 @@ export function ReportsDashboardPage() {
           <h1 className="text-xl font-semibold text-slate-100">Reports</h1>
           <p className="mt-1 text-sm text-slate-400">Your interview performance at a glance.</p>
         </div>
-        <Link to="/reports/history">
-          <Button variant="secondary">
-            <History className="h-4 w-4" />
-            View all reports
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link to="/history">
+            <Button variant="secondary">
+              <History className="h-4 w-4" />
+              Unified history
+            </Button>
+          </Link>
+          <Link to="/reports/history">
+            <Button variant="secondary">View all reports</Button>
+          </Link>
+        </div>
       </div>
+
+      <UnifiedOverviewPanel />
 
       {isLoading && <Spinner label="Loading your analytics..." />}
 

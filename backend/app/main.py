@@ -15,6 +15,8 @@ from app.api.v1.resume_analysis import router as resume_analysis_router
 from app.api.v1.voice import router as voice_router
 from app.api.v1.reports import router as reports_router
 from app.api.v1.coding_interview import router as coding_interview_router
+from app.api.v1.sessions import router as sessions_router
+from app.api.v1.coaching import router as coaching_router
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +76,8 @@ app.include_router(resume_analysis_router)
 app.include_router(voice_router)
 app.include_router(reports_router)
 app.include_router(coding_interview_router)
+app.include_router(sessions_router)
+app.include_router(coaching_router)
 
 
 @app.get("/")

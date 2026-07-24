@@ -208,6 +208,48 @@ Rules:
             )
             raise MalformedCodingQuestionError() from exc
 
+    async def run_code(
+        self,
+        *,
+        session: CodingInterviewSession,
+        request: "CodingRunRequest",
+    ) -> "CodingRunResponse":
+        """Executes code against only the question's visible test cases,
+        without persisting anything or computing a score. This backs the
+        'Run Code' button, kept deliberately separate from submit() so
+        candidates can iterate without spending a graded attempt."""
+
+        if len(request.source_code) > self.max_source_length:
+            raise SourceCodeTooLargeError()
+
+        language = request.language.lower().strip()
+
+        if language not in self.execution_service.supported_languages:
+            if not self.execution_service.supported_languages:
+                from app.exceptions.coding import ExecutionProviderUnavailableError
+
+                raise ExecutionProviderUnavailableError()
+            raise UnsupportedLanguageError(language)
+
+        question = next(
+            (q for q in session.questions if q.question_number == request.question_number),
+            None,
+        )
+        if question is None:
+            raise CodingQuestionNotFoundError()
+
+        results = await self.execution_service.execute(
+            source_code=request.source_code,
+            language=language,
+            test_cases=question.visible_test_cases,
+        )
+
+        passed = sum(1 for result in results if result.passed)
+
+        from app.schemas.coding_interview import CodingRunResponse
+
+        return CodingRunResponse(test_results=results, tests_passed=passed, tests_total=len(results))
+
     async def submit(
         self,
         *,

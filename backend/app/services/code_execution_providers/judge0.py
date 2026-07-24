@@ -59,6 +59,7 @@ class Judge0Provider(CodeExecutionProvider):
                     )
                     response.raise_for_status()
                     data = response.json()
+                    print("Judge0 response:", data)
                     output = self._decode(data.get("stdout"))
                     stderr = self._decode(data.get("stderr") or data.get("compile_output"))
                     results.append(TestExecutionResult(

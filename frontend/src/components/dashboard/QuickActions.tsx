@@ -1,11 +1,12 @@
 import { Link } from "react-router-dom";
-import { FileUp, MessagesSquare, Search } from "lucide-react";
+import { Code2, FileUp, MessagesSquare, Search } from "lucide-react";
 
 import { Card, CardBody, CardHeader } from "@/components/common/Card";
 
 const actions = [
   { to: "/resumes/upload", label: "Upload resume", icon: FileUp },
   { to: "/interviews/setup", label: "Start an interview", icon: MessagesSquare },
+  { to: "/coding/setup", label: "Start a coding interview", icon: Code2 },
   { to: "/resumes/search", label: "Search your resume", icon: Search },
 ];
 

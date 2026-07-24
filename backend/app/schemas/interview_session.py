@@ -32,6 +32,11 @@ class InterviewSessionCreate(BaseModel):
         ge=4,
         le=40,
     )
+    # Module 6/7: distinguishes a text-answered session from a voice-answered
+    # one. Both flows create their session via the same POST /interview/start
+    # endpoint, so this is optional and defaults to "text" to stay backward
+    # compatible with any existing caller that doesn't send it.
+    mode: str = "text"
 
 
 class InterviewSession(BaseModel):
@@ -52,6 +57,12 @@ class InterviewSession(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     completed_at: Optional[datetime] = None
+
+    # Defaults to "text" so documents created before Module 6/7 (which have
+    # no "mode" field stored) still validate correctly.
+    mode: str = "text"
+
+    favorite: bool = False
 
 
 class InterviewSessionResponse(BaseModel):
@@ -81,6 +92,7 @@ class InterviewHistoryItem(BaseModel):
     average_score: float
     completed: bool
     created_at: datetime
+    mode: str = "text"
 
 
 class InterviewHistoryResponse(BaseModel):

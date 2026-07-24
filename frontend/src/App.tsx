@@ -18,9 +18,14 @@ import { InterviewCompletePage } from "@/pages/interview/InterviewCompletePage";
 import { VoiceInterviewSetupPage } from "@/pages/voice/VoiceInterviewSetupPage";
 import { VoiceInterviewSessionPage } from "@/pages/voice/VoiceInterviewSessionPage";
 import { VoiceInterviewCompletePage } from "@/pages/voice/VoiceInterviewCompletePage";
+import { CodingInterviewSetupPage } from "@/pages/coding/CodingInterviewSetupPage";
+import { CodingInterviewSessionPage } from "@/pages/coding/CodingInterviewSessionPage";
+import { CodingInterviewCompletePage } from "@/pages/coding/CodingInterviewCompletePage";
+import { CoachingDashboardPage } from "@/pages/coaching/CoachingDashboardPage";
 import { ReportsDashboardPage } from "@/pages/reports/ReportsDashboardPage";
 import { ReportHistoryPage } from "@/pages/reports/ReportHistoryPage";
 import { ReportDetailPage } from "@/pages/reports/ReportDetailPage";
+import { UnifiedHistoryPage } from "@/pages/sessions/UnifiedHistoryPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
 function App() {
@@ -49,9 +54,17 @@ function App() {
           <Route path="/voice/:sessionId" element={<VoiceInterviewSessionPage />} />
           <Route path="/voice/:sessionId/complete" element={<VoiceInterviewCompletePage />} />
 
+          <Route path="/coding/setup" element={<CodingInterviewSetupPage />} />
+          <Route path="/coding/:sessionId" element={<CodingInterviewSessionPage />} />
+          <Route path="/coding/:sessionId/complete" element={<CodingInterviewCompletePage />} />
+
+          <Route path="/coaching" element={<CoachingDashboardPage />} />
+
           <Route path="/reports" element={<ReportsDashboardPage />} />
           <Route path="/reports/history" element={<ReportHistoryPage />} />
           <Route path="/reports/interview/:interviewId" element={<ReportDetailPage />} />
+
+          <Route path="/history" element={<UnifiedHistoryPage />} />
         </Route>
       </Route>
 

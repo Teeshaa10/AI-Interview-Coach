@@ -101,6 +101,7 @@ async def start_interview(
         job_role=request.job_role,
         experience_level=request.experience_level,
         questions=questions,
+        mode=request.mode,
     )
 
     interview_id = await repository.create_interview(interview)
@@ -243,6 +244,7 @@ async def interview_history(
                 average_score=i.average_score,
                 completed=i.completed,
                 created_at=i.created_at,
+                mode=i.mode,
             )
             for i in interviews
         ]
