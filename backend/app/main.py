@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -8,9 +9,6 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.embeddings import router as embeddings_router
 from app.api.v1.interview import router as interview_router
 from app.api.v1.resume import router as resume_router
-from app.db.chroma import close_chroma_connection, connect_to_chroma
-from app.db.mongo import close_mongo_connection, connect_to_mongo
-from app.exceptions.handlers import register_exception_handlers
 from app.api.v1.resume_analysis import router as resume_analysis_router
 from app.api.v1.voice import router as voice_router
 from app.api.v1.reports import router as reports_router
@@ -18,33 +16,33 @@ from app.api.v1.coding_interview import router as coding_interview_router
 from app.api.v1.sessions import router as sessions_router
 from app.api.v1.coaching import router as coaching_router
 
+from app.db.mongo import close_mongo_connection, connect_to_mongo
+from app.exceptions.handlers import register_exception_handlers
+
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize and clean up application-wide database connections."""
+    """
+    Initialise only essential services during startup.
+
+    ChromaDB is intentionally not initialised here so that the web server
+    can bind to Render's port quickly. ChromaDB should be connected lazily
+    when an embeddings or semantic-search endpoint is used.
+    """
 
     mongo_connected = False
-    chroma_connected = False
 
     try:
         logger.info("Connecting to MongoDB...")
         await connect_to_mongo()
         mongo_connected = True
 
-        logger.info("Connecting to ChromaDB...")
-        connect_to_chroma()
-        chroma_connected = True
-
         logger.info("Application startup complete.")
         yield
 
     finally:
-        if chroma_connected:
-            logger.info("Closing ChromaDB connection...")
-            close_chroma_connection()
-
         if mongo_connected:
             logger.info("Closing MongoDB connection...")
             await close_mongo_connection()
@@ -58,9 +56,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        frontend_url,
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
