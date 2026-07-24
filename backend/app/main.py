@@ -24,13 +24,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Initialise only essential services during startup.
-
-    ChromaDB is intentionally not initialised here so that the web server
-    can bind to Render's port quickly. ChromaDB should be connected lazily
-    when an embeddings or semantic-search endpoint is used.
-    """
+    """Initialise essential application services."""
 
     mongo_connected = False
 
@@ -55,7 +49,6 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
-
 
 frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
